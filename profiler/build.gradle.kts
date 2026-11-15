@@ -4,6 +4,8 @@ plugins {
     `maven-publish`
 }
 
+val publicationVersion = providers.environmentVariable("VERSION").orElse("0.1.0").get()
+
 android {
     namespace = "com.exoplayerprofiler"
     compileSdk = 36
@@ -52,9 +54,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
-// Publishing. Coordinates must match the FL SDK's dependency: com.exoplayerprofiler:profiler.
-// Before publishing to a real repository, the owner must fill in the license, SCM and developer
-// entries below (required by Maven Central) and set the release repository credentials.
+// JitPack's multi-module coordinate is com.github.<owner>.<repo>:<module>:<tag>.
 android {
     publishing {
         singleVariant("release") {
@@ -67,13 +67,25 @@ publishing {
     publications {
         register<MavenPublication>("release") {
             afterEvaluate { from(components["release"]) }
-            groupId = "com.exoplayerprofiler"
+            groupId = "com.github.vicky-droid.exoplayer-profiler-android"
             artifactId = "profiler"
-            version = "0.1.0"
+            version = publicationVersion
             pom {
                 name.set("ExoPlayer Playback Profiler")
                 description.set("Records ExoPlayer playback sessions to on-device JSON files.")
-                // TODO(owner): licenses { license { ... } }, scm { ... }, developers { ... }
+                url.set("https://github.com/vicky-droid/exoplayer-profiler-android")
+                licenses {
+                    license {
+                        name.set("Apache-2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                        distribution.set("repo")
+                    }
+                }
+                scm {
+                    url.set("https://github.com/vicky-droid/exoplayer-profiler-android")
+                    connection.set("scm:git:git://github.com/vicky-droid/exoplayer-profiler-android.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/vicky-droid/exoplayer-profiler-android.git")
+                }
             }
         }
     }

@@ -22,7 +22,8 @@ All notable changes to this project are documented here. The format follows
 - A `release` Maven publication with a sources jar. It is not yet published to a repository.
 
 ### Known gaps
-- No license file, and no Maven repository or signing configured yet. See `profiler/build.gradle.kts`.
+- No JitPack release tag has been pushed yet; consumers can resolve the library after a tagged
+  build succeeds on JitPack.
 - The writer thread is not torn down on `detach()`; it lives for the process.
 - In-memory event buffering per session is not capped.
 

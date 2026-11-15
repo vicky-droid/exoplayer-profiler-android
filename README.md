@@ -11,6 +11,32 @@ Media3 ExoPlayer.
 - `demo/`: an app that plays a DASH stream with the profiler attached and has an "Ad break 5 s"
   button for testing ad tags.
 
+## Use from another Gradle project
+
+This Android library is available through JitPack after a Git tag is pushed. Add JitPack to the
+consumer project's `settings.gradle.kts` repositories:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+Then add the `profiler` module to the consumer app's `build.gradle.kts`. The dependency version
+must match a Git tag in this repository (for example, `v0.1.0`):
+
+```kotlin
+dependencies {
+    implementation("com.github.vicky-droid.exoplayer-profiler-android:profiler:v0.1.0")
+}
+```
+
+JitPack builds the tagged source on the first request. See the [JitPack build page](https://jitpack.io/#vicky-droid/exoplayer-profiler-android).
+
 ## Usage
 
 ```kotlin
@@ -73,6 +99,6 @@ are only enabled with `captureRawLocal = true` in a debuggable build.
 - Build: version catalog in `gradle/libs.versions.toml`, pinned Gradle wrapper checksum, CI in
   `.github/workflows/ci.yml`.
 
-Open items before a public release are listed in `CHANGELOG.md` under "Known gaps". In
-particular, a license file and a publication repository are not set up yet.
+Open items are listed in `CHANGELOG.md` under "Known gaps". A public JitPack release requires a
+Git tag and a successful JitPack build for that tag.
 # exoplayer-profiler
