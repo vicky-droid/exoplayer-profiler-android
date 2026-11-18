@@ -32,6 +32,32 @@ class BoundedEventQueueTest {
   }
 
   @Test
+  fun `control items are never evicted and do not count as drops`() {
+    val queue = BoundedEventQueue(2)
+    queue.offer("a")
+    queue.offer("b")
+    queue.offerControl("END")
+    // Overflowing with ordinary events evicts ordinary events, never the control item.
+    queue.offer("c")
+    queue.offer("d")
+    val buffer = mutableListOf<Any>()
+    queue.drainAll(buffer)
+    assertTrue(buffer.contains("END"))
+    assertEquals(2, queue.droppedCount.get())
+  }
+
+  @Test
+  fun `control items keep their position relative to events`() {
+    val queue = BoundedEventQueue(10)
+    queue.offer("e1")
+    queue.offerControl("END1")
+    queue.offer("e2")
+    val buffer = mutableListOf<Any>()
+    queue.drainAll(buffer)
+    assertEquals(listOf<Any>("e1", "END1", "e2"), buffer)
+  }
+
+  @Test
   fun `currentSize reflects queued count`() {
     val queue = BoundedEventQueue(10)
     assertEquals(0, queue.currentSize)

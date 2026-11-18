@@ -122,6 +122,8 @@ internal object EventJsonWriter {
         sb.append("\"captureLevel\":").append(esc(header.config.captureLevel)).append(",")
         sb.append("\"maxEventsPerSession\":").append(header.config.maxEventsPerSession).append("},")
         sb.append("\"fileErrors\":").append(header.fileErrors).append(",")
+        // Only written for sessions rebuilt from a journal after the app was killed.
+        if (header.recovered) sb.append("\"recovered\":true,")
         sb.append("\"attributes\":{")
         header.attributes.entries.forEachIndexed { idx, (k, v) ->
             if (idx > 0) sb.append(",")

@@ -19,6 +19,8 @@ internal data class SessionHeader(
     val config: ConfigSnapshot,
     val fileErrors: Int = 0,
     val attributes: Map<String, String> = emptyMap(),
+    /** True when the session was rebuilt from its journal after the app stopped without ending it. */
+    val recovered: Boolean = false,
 )
 
 /** Device information captured at session start. */

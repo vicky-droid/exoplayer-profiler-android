@@ -26,7 +26,9 @@ import com.exoplayerprofiler.internal.redact.Redactor
 import com.exoplayerprofiler.internal.sink.EventSink
 import com.exoplayerprofiler.internal.sink.FileSink
 import com.exoplayerprofiler.internal.sink.LogcatSink
+import com.exoplayerprofiler.internal.sink.HeaderTemplate
 import com.exoplayerprofiler.internal.sink.RetentionManager
+import com.exoplayerprofiler.internal.sink.SessionJournal
 import com.exoplayerprofiler.internal.writer.WriterThread
 import com.exoplayerprofiler.ProfilerSink
 import com.exoplayerprofiler.internal.sink.ProfilerSinkAdapter
@@ -935,6 +937,20 @@ internal class PlaybackProfilerEngine {
       }
 
       val wt = WriterThread.getOrCreate("PlaybackProfilerWriter", 4096, sinks)
+      // Sessions left unfinished by an earlier run (force-stop, crash) are rebuilt from their journals.
+      // The task is posted before this run offers any event, so this run's own journal cannot be picked up.
+      val template = HeaderTemplate(
+        packageName = ctx.packageName,
+        media3Version = "1.11.0",
+        androidVersion = Build.VERSION.RELEASE,
+        apiLevel = Build.VERSION.SDK_INT,
+        config = ConfigSnapshot(
+          captureLevel = config?.captureLevel?.name ?: "FULL",
+          maxEventsPerSession = config?.maxEventsPerSession ?: 10_000,
+        ),
+        redacted = true,
+      )
+      wt.post { try { SessionJournal.recoverAll(profilerDir, template) } catch (_: Exception) {} }
       rawChunkUris = debuggable && config?.captureRawLocal == true
       writerThread = wt
       wt

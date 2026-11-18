@@ -9,8 +9,7 @@ import com.exoplayerprofiler.internal.sink.EventSink
 import java.util.concurrent.CopyOnWriteArrayList
 
 private const val MSG_DRAIN = 1
-private const val MSG_SESSION_ENDED = 2
-private const val MSG_CLOSE = 3
+private const val MSG_CLOSE = 2
 
 /** Longest time [WriterThread.close] waits for pending events and sinks to flush. */
 private const val CLOSE_TIMEOUT_MS = 2_000L
@@ -49,11 +48,14 @@ internal class WriterThread private constructor(
     /** Number of events dropped because the queue overflowed, since the writer started. */
     fun queueDropCount(): Long = queue.droppedCount.get().toLong()
 
+    /**
+     * Ends a session. The end marker goes into the same ordered queue as the session's events, so
+     * the writer finalises the file after exactly the events that were offered before it. A separate
+     * message here let the writer pull the next session's events into this session's file.
+     */
     fun onSessionEnded(sessionId: String, eventCount: Int, header: SessionHeader?) {
-        val msg = handler?.obtainMessage(MSG_SESSION_ENDED)
-        msg?.obj = Pair(sessionId, header)
-        msg?.arg2 = eventCount
-        msg?.sendToTarget()
+        queue.offerControl(SessionEndMarker(sessionId, eventCount, header))
+        handler?.obtainMessage(MSG_DRAIN)?.sendToTarget()
     }
 
     /**
@@ -81,14 +83,6 @@ internal class WriterThread private constructor(
     override fun handleMessage(msg: Message): Boolean {
         when (msg.what) {
             MSG_DRAIN -> drainAndDispatch()
-            MSG_SESSION_ENDED -> {
-                val payload = msg.obj
-                val sessionId = if (payload is Pair<*, *>) payload.first as String else ""
-                val header = if (payload is Pair<*, *>) payload.second as SessionHeader? else null
-                for (sink in sinks) {
-                    try { sink.onSessionEnded(sessionId, msg.arg2, header) } catch (_: Exception) {}
-                }
-            }
             MSG_CLOSE -> {
                 // Drain what is still queued so no event is lost on teardown.
                 drainAndDispatch()
@@ -104,14 +98,25 @@ internal class WriterThread private constructor(
     private fun drainAndDispatch() {
         val buffer = mutableListOf<Any>()
         queue.drainAll(buffer)
-        for (event in buffer) {
-            if (event is SchemaV3Event) {
-                for (sink in sinks) {
-                    try { sink.onEvent(event) } catch (_: Exception) {}
+        // Items arrive in the order they were offered, so a session's end marker is handled only
+        // after that session's events and before the next session's events.
+        for (item in buffer) {
+            when (item) {
+                is SchemaV3Event -> for (sink in sinks) {
+                    try { sink.onEvent(item) } catch (_: Exception) {}
+                }
+                is SessionEndMarker -> for (sink in sinks) {
+                    try { sink.onSessionEnded(item.sessionId, item.eventCount, item.header) } catch (_: Exception) {}
                 }
             }
         }
     }
+
+    private class SessionEndMarker(
+        val sessionId: String,
+        val eventCount: Int,
+        val header: SessionHeader?,
+    )
 
     companion object {
         @Volatile private var instance: WriterThread? = null

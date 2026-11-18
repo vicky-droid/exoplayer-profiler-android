@@ -34,6 +34,16 @@ internal class BoundedEventQueue(private val capacity: Int) {
     return true
   }
 
+  /**
+   * Offers a control item (such as a session-end marker) that must never be evicted: losing one
+   * would merge two sessions' events into one file. It is not counted as a dropped event.
+   * Control items are rare (one per session), so letting the queue briefly exceed [capacity] is safe.
+   */
+  fun offerControl(item: Any) {
+    queue.offer(item)
+    size.incrementAndGet()
+  }
+
   /** Drains all currently queued events into [buffer]. */
   fun drainAll(buffer: MutableList<Any>) {
     var drained = 0
