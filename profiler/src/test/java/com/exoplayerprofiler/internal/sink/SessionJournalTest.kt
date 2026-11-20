@@ -8,6 +8,7 @@ import com.exoplayerprofiler.internal.model.RenderedFirstFrameV3
 import com.exoplayerprofiler.internal.model.SessionHeader
 import com.exoplayerprofiler.internal.model.SessionStartedV3
 import java.io.File
+import java.io.RandomAccessFile
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -137,5 +138,68 @@ class SessionJournalTest {
         // Second start: the journal was removed, so nothing is recovered twice.
         assertEquals(0, SessionJournal.recoverAll(tmp.root, template))
         assertEquals(1, sessionFiles().size)
+    }
+
+    /** Writes a journal that holds only a SessionStarted, and returns the journal's session file base name. */
+    private fun leftoverJournal(): String {
+        val sink = FileSink(tmp.root, redacted = true)
+        sink.onEvent(started())
+        sink.onEvent(RenderedFirstFrameV3(tMs = 300L, wallMs = 0L, thread = "main", presentationTimeUs = 0L))
+        sink.close()
+        return SessionFiles.baseName(1_700_000_000_000L, sessionId)
+    }
+
+    @Test
+    fun `a journal whose session file already exists is removed and the existing file is kept`() {
+        val base = leftoverJournal()
+        val existing = File(tmp.root, "$base.json")
+        existing.writeText("{\"complete\":true}")
+
+        assertEquals(0, SessionJournal.recoverAll(tmp.root, template))
+
+        assertTrue(journals().isEmpty())
+        assertEquals("{\"complete\":true}", existing.readText())
+    }
+
+    @Test
+    fun `a failed write keeps the journal so the next start can recover it`() {
+        val base = leftoverJournal()
+        // A directory where the temporary NDJSON file must be written makes the session write fail.
+        File(tmp.root, "$base.ndjson.tmp").mkdir()
+
+        assertEquals(0, SessionJournal.recoverAll(tmp.root, template))
+
+        assertEquals(1, journals().size)
+        assertFalse(File(tmp.root, "$base.json").exists())
+    }
+
+    @Test
+    fun `a recovered session is handed to the listener`() {
+        leftoverJournal()
+        val delivered = mutableListOf<String>()
+        val listener = object : FileSink.OutputListener {
+            override fun onEventJson(eventJson: String) {}
+            override fun onSessionJson(sessionId: String, sessionJson: String) { delivered += sessionId }
+        }
+
+        assertEquals(1, SessionJournal.recoverAll(tmp.root, template, listener))
+
+        assertEquals(listOf(sessionId), delivered)
+    }
+
+    @Test
+    fun `a journal that another holder still has locked is left alone`() {
+        leftoverJournal()
+        val journal = journals().single()
+        RandomAccessFile(journal, "rw").use { raf ->
+            raf.channel.lock().use {
+                assertEquals(0, SessionJournal.recoverAll(tmp.root, template))
+            }
+        }
+
+        assertTrue(journal.exists())
+        assertTrue(sessionFiles().isEmpty())
+        // Once the live holder is gone, the same journal is recovered.
+        assertEquals(1, SessionJournal.recoverAll(tmp.root, template))
     }
 }

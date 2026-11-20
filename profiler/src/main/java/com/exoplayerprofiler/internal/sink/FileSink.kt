@@ -9,7 +9,8 @@ import com.exoplayerprofiler.internal.model.SessionHeader
 import com.exoplayerprofiler.internal.redact.Redactor
 import java.io.BufferedWriter
 import java.io.File
-import java.io.FileWriter
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,6 +56,8 @@ internal class FileSink(
     private val aggregates = AggregateTracker()
     private var journal: BufferedWriter? = null
     private var journalFile: File? = null
+    private var journalFailures = 0
+    private var journalDisabled = false
 
     override fun onEvent(event: SchemaV3Event) {
         try {
@@ -103,6 +106,7 @@ internal class FileSink(
             // The journal is only needed until the session is written. If writing failed, keep it so
             // the session can be recovered on the next start.
             closeJournal(keepFile = !wroteSession)
+            resetJournalState()
             // One file per playback session: the next session must start with an empty buffer.
             eventLines.clear()
             storedEvents = 0
@@ -115,13 +119,20 @@ internal class FileSink(
         sessionHeader = null
         // A session still running keeps its journal, so it can be recovered after a restart.
         closeJournal(keepFile = true)
+        resetJournalState()
         eventLines.clear()
         storedEvents = 0
         capDropped = 0
         aggregates.reset()
     }
 
+    private companion object {
+        /** Journal writes that fail in one session before journaling stops for that session. */
+        const val MAX_JOURNAL_FAILURES = 3
+    }
+
     private fun appendJournal(line: String) {
+        if (journalDisabled) return
         try {
             val writer = journal ?: openJournal().also { journal = it }
             writer.write(line)
@@ -129,7 +140,15 @@ internal class FileSink(
             // Flushed per event so a force-stop loses at most the event being written.
             writer.flush()
         } catch (e: Exception) {
-            Log.w("PlaybackProfiler", "Journal write failed: ${e.javaClass.simpleName}")
+            journalFailures++
+            // Logged once per session, then journaling stops after a few failures: a full disk must not
+            // cost a log line and a failed write per event.
+            if (journalFailures == 1) Log.w("PlaybackProfiler", "Journal write failed: ${e.javaClass.simpleName}")
+            if (journalFailures >= MAX_JOURNAL_FAILURES) {
+                Log.w("PlaybackProfiler", "Journal disabled for this session after $journalFailures failures")
+                journalDisabled = true
+                closeJournal(keepFile = true)
+            }
         }
     }
 
@@ -137,7 +156,17 @@ internal class FileSink(
         filesDir.mkdirs()
         val file = File(filesDir, "${SessionJournal.PREFIX}${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}${SessionJournal.SUFFIX}")
         journalFile = file
-        return BufferedWriter(FileWriter(file, true))
+        val stream = FileOutputStream(file, true)
+        // The lock is held until the stream closes. Recovery in another process skips a journal that is
+        // still locked, so a live session is never rebuilt from its partial journal. A null result means
+        // another holder has the lock; journaling continues either way.
+        try { stream.channel.tryLock() } catch (_: Exception) {}
+        return BufferedWriter(OutputStreamWriter(stream, Charsets.UTF_8))
+    }
+
+    private fun resetJournalState() {
+        journalFailures = 0
+        journalDisabled = false
     }
 
     private fun closeJournal(keepFile: Boolean) {
@@ -155,6 +184,12 @@ internal class FileSink(
 @UnstableApi
 internal object SessionFiles {
 
+    /** Base name shared by the `.ndjson` and `.json` files of one session. */
+    fun baseName(startedAtEpochMs: Long, sessionId: String): String {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(startedAtEpochMs))
+        return "session_${stamp}_${sessionId.take(8)}"
+    }
+
     /** Writes both files and returns the final session JSON. */
     fun write(
         filesDir: File,
@@ -163,8 +198,7 @@ internal object SessionFiles {
         aggregates: Aggregates,
         suffix: String,
     ): String {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(hdr.startedAtEpochMs))
-        val baseName = "session_${stamp}_${hdr.sessionId.take(8)}"
+        val baseName = baseName(hdr.startedAtEpochMs, hdr.sessionId)
 
         // Write NDJSON file (first line = header)
         val ndjsonFile = File(filesDir, "$baseName$suffix.ndjson")

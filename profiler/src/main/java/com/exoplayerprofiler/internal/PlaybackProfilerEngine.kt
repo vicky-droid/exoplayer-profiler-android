@@ -952,7 +952,13 @@ internal class PlaybackProfilerEngine {
         ),
         redacted = true,
       )
-      wt.post { try { SessionJournal.recoverAll(profilerDir, template) } catch (_: Exception) {} }
+      // Recovered sessions go to the same sinks as live ones (so uploads see them), then retention runs.
+      val retention = retentionManager
+      wt.post {
+        try {
+          if (SessionJournal.recoverAll(profilerDir, template, sinkAdapter) > 0) retention?.enforce()
+        } catch (_: Exception) {}
+      }
       rawChunkUris = debuggable && config?.captureRawLocal == true
       writerThread = wt
       wt
