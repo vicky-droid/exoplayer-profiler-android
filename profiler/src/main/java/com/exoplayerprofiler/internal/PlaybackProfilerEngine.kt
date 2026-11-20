@@ -97,7 +97,6 @@ internal class PlaybackProfilerEngine {
 
   /** Track switch tracking: last format id per track type (2=video, 1=audio, 3=text). */
   private var lastFormatIdByTrackType = mutableMapOf<Int, String?>()
-  private var droppedFramesCount = 0
   private var lastDroppedFramesEventTimeMs = 0L
 
   /** Chunk tracking: keyed by loadTaskId. */
@@ -589,16 +588,17 @@ internal class PlaybackProfilerEngine {
 
     override fun onDroppedVideoFrames(eventTime: EventTime, droppedFrames: Int, elapsedMs: Long) { synchronized(this@PlaybackProfilerEngine) {
       val now = eventTime.realtimeMs
-      if (droppedFrames > droppedFramesCount) {
+      // Media3 reports the frames dropped since its previous call (a delta, not a running total), so
+      // each callback is emitted as-is. A running-total comparison here lost drops after the first call.
+      if (droppedFrames > 0) {
         emit(DroppedFramesV3(
           tMs = sessionTime(now),
           wallMs = System.currentTimeMillis(),
           thread = Thread.currentThread().name,
           contentKind = currentKind(),
-          droppedFrames = droppedFrames - droppedFramesCount,
+          droppedFrames = droppedFrames,
           elapsedMs = elapsedMs,
         ), now)
-        droppedFramesCount = droppedFrames
         lastDroppedFramesEventTimeMs = now
       }
       }
