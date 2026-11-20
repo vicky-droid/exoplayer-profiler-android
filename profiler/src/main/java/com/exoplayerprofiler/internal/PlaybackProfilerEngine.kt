@@ -77,6 +77,8 @@ internal class PlaybackProfilerEngine {
   private var sessionStartRealtimeMs = 0L
   /** Writer queue drop count when the current session began. */
   private var queueDropBaseline = 0L
+  /** Writer queue drops per category when the current session began. */
+  private var queueDropCategoryBaseline: Map<String, Int> = emptyMap()
   private var sessionStartEpochMs = 0L
   private var playClickTimeMs = 0L
   private var authStartMs = 0L
@@ -997,6 +999,15 @@ internal class PlaybackProfilerEngine {
     ((writerThread?.queueDropCount() ?: 0L) - queueDropBaseline)
       .coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
+  /** Queue overflow drops during the current session, per category (the same window as [queueDropsThisSession]). */
+  private fun queueDropsByCategoryThisSession(): Map<String, Int> {
+    val now = writerThread?.queueDropCountsByCategory() ?: return emptyMap()
+    return now.mapNotNull { (category, count) ->
+      val delta = count - (queueDropCategoryBaseline[category] ?: 0)
+      if (delta > 0) category to delta else null
+    }.toMap()
+  }
+
   @Synchronized
   fun beginSession() {
     if (!isActive()) return
@@ -1006,6 +1017,7 @@ internal class PlaybackProfilerEngine {
     sessionStartEpochMs = System.currentTimeMillis()
     // The writer may outlive a session; count queue drops from here on for this session only.
     queueDropBaseline = ensureWriterThread()?.queueDropCount() ?: 0L
+    queueDropCategoryBaseline = ensureWriterThread()?.queueDropCountsByCategory() ?: emptyMap()
     sessionId = UUID.randomUUID().toString()
     retentionManager?.markOpen(sessionId)
     // Marks made before the session existed (click, then create and attach the player) count.
@@ -1294,6 +1306,8 @@ internal class PlaybackProfilerEngine {
         durationMs = System.currentTimeMillis() - sessionStartEpochMs,
         eventCount = eventCounter,
         droppedEvents = queueDropsThisSession(),
+        droppedByCategory = queueDropsByCategoryThisSession(),
+        cappedEventsCounted = 0,
         redacted = isRedacted,
         device = DeviceInfo(
           manufacturer = Build.MANUFACTURER,

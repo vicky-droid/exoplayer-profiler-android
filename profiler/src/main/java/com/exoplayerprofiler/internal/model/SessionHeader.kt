@@ -21,6 +21,22 @@ internal data class SessionHeader(
     val attributes: Map<String, String> = emptyMap(),
     /** True when the session was rebuilt from its journal after the app stopped without ending it. */
     val recovered: Boolean = false,
+    /** Queue overflow drops for this session, per event category (plan 1.5). */
+    val droppedByCategory: Map<String, Int> = emptyMap(),
+    /** Events that arrived outside any session (after an end, before the next start). */
+    val outOfSessionEvents: Int = 0,
+    /** Events counted in the aggregates but not written to the file because of the per-session cap. */
+    val cappedEventsCounted: Int = 0,
+    /** Failures the SDK recorded without surfacing them to the app (plan 1.12). */
+    val health: HealthSnapshot = HealthSnapshot(),
+)
+
+/** Failures the SDK absorbed so that playback was never affected. */
+internal data class HealthSnapshot(
+    val swallowed: Int = 0,
+    val sinkErrors: Int = 0,
+    val recoveryErrors: Int = 0,
+    val firstError: String? = null,
 )
 
 /** Device information captured at session start. */

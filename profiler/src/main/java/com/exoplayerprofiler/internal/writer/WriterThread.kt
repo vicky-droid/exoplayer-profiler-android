@@ -46,7 +46,10 @@ internal class WriterThread private constructor(
     }
 
     /** Number of events dropped because the queue overflowed, since the writer started. */
-    fun queueDropCount(): Long = queue.droppedCount.get().toLong()
+    fun queueDropCount(): Long = queue.droppedCount.toLong()
+
+    /** Overflow drops since the writer started, per event category. */
+    fun queueDropCountsByCategory(): Map<String, Int> = queue.droppedByCategory()
 
     /**
      * Ends a session. The end marker goes into the same ordered queue as the session's events, so

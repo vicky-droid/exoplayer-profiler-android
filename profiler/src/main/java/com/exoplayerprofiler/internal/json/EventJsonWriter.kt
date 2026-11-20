@@ -124,6 +124,20 @@ internal object EventJsonWriter {
         sb.append("\"fileErrors\":").append(header.fileErrors).append(",")
         // Only written for sessions rebuilt from a journal after the app was killed.
         if (header.recovered) sb.append("\"recovered\":true,")
+        sb.append("\"droppedByCategory\":{")
+        header.droppedByCategory.entries.forEachIndexed { idx, (k, v) ->
+            if (idx > 0) sb.append(",")
+            sb.append(esc(k)).append(":").append(v)
+        }
+        sb.append("},")
+        sb.append("\"outOfSessionEvents\":").append(header.outOfSessionEvents).append(",")
+        sb.append("\"cappedEventsCounted\":").append(header.cappedEventsCounted).append(",")
+        sb.append("\"health\":{")
+        sb.append("\"swallowed\":").append(header.health.swallowed).append(",")
+        sb.append("\"sinkErrors\":").append(header.health.sinkErrors).append(",")
+        sb.append("\"recoveryErrors\":").append(header.health.recoveryErrors).append(",")
+        sb.append("\"firstError\":").append(header.health.firstError?.let { esc(it) } ?: "null")
+        sb.append("},")
         sb.append("\"attributes\":{")
         header.attributes.entries.forEachIndexed { idx, (k, v) ->
             if (idx > 0) sb.append(",")

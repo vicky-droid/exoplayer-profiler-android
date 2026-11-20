@@ -85,7 +85,12 @@ internal class FileSink(
             // Stable sort keeps arrival order for events with equal timestamps.
             val ordered = eventLines.sortedBy { it.first }.map { it.second }
             // droppedEvents = queue overflow reported by the engine + events over the cap here.
-            val counted = rawHdr.copy(eventCount = ordered.size, droppedEvents = rawHdr.droppedEvents + capDropped)
+            // cappedEventsCounted: events past the per-session cap. They are not in the file but are in the aggregates.
+            val counted = rawHdr.copy(
+                eventCount = ordered.size,
+                droppedEvents = rawHdr.droppedEvents + capDropped,
+                cappedEventsCounted = capDropped,
+            )
             val hdr = if (redacted && !counted.redacted) counted.copy(redacted = true) else counted
             val suffix = if (redacted) "" else ".raw"
             val json = SessionFiles.write(filesDir, hdr, ordered, aggregates.snapshot(), suffix)

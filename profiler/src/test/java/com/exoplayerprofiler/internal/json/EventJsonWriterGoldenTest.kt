@@ -49,6 +49,39 @@ class EventJsonWriterGoldenTest {
   }
 
   @Test
+  fun `headerToJson writes drop counts and health`() {
+    val header = SessionHeader(
+      sessionId = "11111111-2222-3333-4444-555555555555",
+      packageName = "com.example",
+      startedAtEpochMs = 1L,
+      exportedAtEpochMs = 2L,
+      durationMs = 3L,
+      eventCount = 4,
+      droppedEvents = 7,
+      redacted = true,
+      device = DeviceInfo("Google", "Pixel", "14", 34),
+      media3Version = "1.11.0",
+      sdkVersion = null,
+      config = ConfigSnapshot("FULL", 10_000),
+      droppedByCategory = mapOf("CHUNK" to 5, "NETWORK" to 2),
+      outOfSessionEvents = 1,
+      cappedEventsCounted = 9,
+      health = HealthSnapshot(swallowed = 2, sinkErrors = 1, recoveryErrors = 0, firstError = "boom \"quoted\""),
+    )
+
+    val parsed = JSONObject(EventJsonWriter.headerToJson(header))
+
+    assertEquals(5, parsed.getJSONObject("droppedByCategory").getInt("CHUNK"))
+    assertEquals(2, parsed.getJSONObject("droppedByCategory").getInt("NETWORK"))
+    assertEquals(1, parsed.getInt("outOfSessionEvents"))
+    assertEquals(9, parsed.getInt("cappedEventsCounted"))
+    val health = parsed.getJSONObject("health")
+    assertEquals(2, health.getInt("swallowed"))
+    assertEquals(1, health.getInt("sinkErrors"))
+    assertEquals("boom \"quoted\"", health.getString("firstError"))
+  }
+
+  @Test
   fun `aggregatesToJson produces deterministic valid JSON`() {
     val aggregates = Aggregates(
       categoryCounts = mapOf("CHUNK" to 253, "DECODER" to 2),
