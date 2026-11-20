@@ -176,16 +176,60 @@ internal object Redactor {
     return SENSITIVE_KEYS.any { lower.contains(it) }
   }
 
+  private const val MAX_NESTING = 8
+  private const val MAX_STRING_CHARS = 2048
+  private val HTTP_URL_REGEX = "(https?://[^\\s\"'>]+)".toRegex()
+
+  /** Top-level custom-event value. A sensitive key is replaced by a marker here, dropped inside maps. */
   fun redactCustomEventValue(key: String?, value: Any?): Any? {
     if (key.isNullOrBlank() || value == null) return value
     if (isSensitiveKey(key)) return "<redacted>"
-    if (value is String) {
-      var s = redactTokens(value)
-      if (s.startsWith("http://") || s.startsWith("https://")) {
-        s = redactUri(s)
+    return redactNested(value, 0)
+  }
+
+  /**
+   * Redacts a custom-event value of any shape (plan 1.15). Strings are token- and URL-redacted wherever
+   * they appear and capped in length. Maps and lists are walked recursively; sensitive keys are dropped
+   * at every level. Maps and lists come back as JSONObject and JSONArray so they serialise as JSON.
+   * Nesting deeper than [MAX_NESTING] is replaced by a marker.
+   */
+  fun redactNested(value: Any?, depth: Int): Any? {
+    if (value == null) return null
+    if (depth > MAX_NESTING) return "<truncated>"
+    return when (value) {
+      is String -> redactStringValue(value)
+      is org.json.JSONObject -> {
+        val map = LinkedHashMap<String, Any?>()
+        val keys = value.keys()
+        while (keys.hasNext()) {
+          val k = keys.next()
+          map[k] = value.opt(k)
+        }
+        redactNested(map, depth)
       }
-      return s
+      is org.json.JSONArray -> redactNested((0 until value.length()).map { value.opt(it) }, depth)
+      is Map<*, *> -> {
+        val out = org.json.JSONObject()
+        for ((k, v) in value) {
+          val key = k?.toString() ?: continue
+          if (isSensitiveKey(key)) continue
+          out.put(key, redactNested(v, depth + 1) ?: org.json.JSONObject.NULL)
+        }
+        out
+      }
+      is Iterable<*> -> {
+        val out = org.json.JSONArray()
+        for (item in value) out.put(redactNested(item, depth + 1) ?: org.json.JSONObject.NULL)
+        out
+      }
+      else -> value
     }
-    return value
+  }
+
+  private fun redactStringValue(value: String): String {
+    var s = redactTokens(value)
+    s = HTTP_URL_REGEX.replace(s) { redactUri(it.value) }
+    if (s.length > MAX_STRING_CHARS) s = s.substring(0, MAX_STRING_CHARS) + "…"
+    return s
   }
 }
