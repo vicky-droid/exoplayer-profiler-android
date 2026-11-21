@@ -1146,15 +1146,19 @@ internal class PlaybackProfilerEngine {
 
   private fun endSession() {
     if (sessionStartRealtimeMs == 0L) return
-    val header = buildSessionHeader()
+    // One clock for the end: the marker's tMs is also the session's duration (monotonic, session-relative).
+    val endTms = SystemClock.elapsedRealtime() - sessionStartRealtimeMs
     emit(SessionEndedV3(
-      tMs = SystemClock.elapsedRealtime() - sessionStartRealtimeMs,
+      tMs = endTms,
       wallMs = System.currentTimeMillis(),
       thread = Thread.currentThread().name,
       contentKind = ContentKind.UNKNOWN,
       sessionId = sessionId,
       eventCount = eventCounter,
     ))
+    // Built after SessionEnded is emitted, so the header's eventCount includes the end marker (the marker's
+    // own eventCount field does not). The file holds the same number of events.
+    val header = buildSessionHeader(endTms)
     // File I/O must not run on the player thread; post it to the writer thread.
     writerThread?.onSessionEnded(sessionId, eventCounter, header)
     retentionManager?.markClosed(sessionId)
@@ -1264,8 +1268,9 @@ internal class PlaybackProfilerEngine {
     ))
   }
 
-  @Synchronized
   fun reset() {
+    var oldWriter: WriterThread? = null
+    synchronized(this) {
     if (!isActive()) return
     // Finalise the current session (session end event + sinks) before teardown,
     // otherwise the playback is lost when the writer thread is closed.
@@ -1284,7 +1289,7 @@ internal class PlaybackProfilerEngine {
     // important in unit-test environments where no Looper is available.
     attachedPlayer?.removeAnalyticsListener(listener)
     attachedPlayer = null
-    writerThread?.close()
+    oldWriter = writerThread
     writerThread = null
     logcatSink = null
     fileSink = null
@@ -1295,6 +1300,9 @@ internal class PlaybackProfilerEngine {
     sessionStartRealtimeMs = 0L
     sessionStartEpochMs = 0L
     eventCounter = 0
+    }
+    // Joined outside the engine monitor: a sink that calls back into the engine must not stall reset.
+    oldWriter?.close()
   }
 
   private fun calculateVST(now: Long) {
@@ -1326,7 +1334,7 @@ internal class PlaybackProfilerEngine {
     ))
   }
 
-  private fun buildSessionHeader(): SessionHeader {
+  private fun buildSessionHeader(durationMs: Long): SessionHeader {
       val ctx = context
       val debuggable = ctx?.applicationInfo?.let { it.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 } == true
       val isRedacted = !(config?.captureRawLocal == true && debuggable)
@@ -1336,7 +1344,7 @@ internal class PlaybackProfilerEngine {
         packageName = context?.packageName ?: "",
         startedAtEpochMs = sessionStartEpochMs,
         exportedAtEpochMs = System.currentTimeMillis(),
-        durationMs = System.currentTimeMillis() - sessionStartEpochMs,
+        durationMs = durationMs,
         eventCount = eventCounter,
         droppedEvents = queueDropsThisSession(),
         droppedByCategory = queueDropsByCategoryThisSession(),
