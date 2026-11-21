@@ -42,6 +42,24 @@ internal data class SessionEndedV3(
     override val event = "SessionEnded"
 }
 
+/**
+ * The session's attributes and capture settings, written right after SessionStarted. A recovered session
+ * (see SessionJournal) takes its attributes and config from this event, because the header of a session that
+ * never ended is rebuilt from the journal.
+ */
+internal data class SessionConfigV3(
+    override val tMs: Long,
+    override val wallMs: Long,
+    override val thread: String,
+    override val contentKind: String = ContentKind.UNKNOWN,
+    val attributes: Map<String, String>,
+    val captureLevel: String,
+    val maxEventsPerSession: Int,
+) : SchemaV3Event {
+    override val category = "SESSION"
+    override val event = "SessionConfig"
+}
+
 /** Startup markers. */
 internal data class PlaybackClickV3(
     override val tMs: Long,

@@ -34,8 +34,9 @@ internal data class HeaderTemplate(
  * A failed write keeps the journal, so the next start can try again. A journal that another process
  * still holds locked is a live session and is left alone.
  *
- * Limits of a recovered session: `droppedEvents` is 0 (drops before the crash are not known), and
- * `attributes` are empty (they are not journaled). Its events and totals are otherwise the same as a
+ * Limits of a recovered session: `droppedEvents` is 0 (drops before the crash are not known). `attributes`
+ * and `config` come from the SessionConfig event, so a journal written by an older build recovers with empty
+ * attributes. Its events and totals are otherwise the same as a
  * normal session. The Android version is taken from the current device, which is the device the app
  * ran on in practice.
  */
@@ -118,6 +119,23 @@ internal object SessionJournal {
         val tracker = AggregateTracker()
         for ((raw, obj) in lines) tracker.track(obj.optString("category"), obj.optString("event"), raw)
 
+        // Attributes and capture settings come from the SessionConfig event written at session start. A journal
+        // from before that event existed falls back to empty attributes and the current config.
+        val configDetails = lines.firstOrNull { (_, obj) ->
+            obj.optString("category") == "SESSION" && obj.optString("event") == "SessionConfig"
+        }?.second?.optJSONObject("details")
+        val attributes = configDetails?.optJSONObject("attributes")?.let { o ->
+            o.keys().asSequence().associateWith { o.optString(it) }
+        }.orEmpty()
+        val config = if (configDetails != null) {
+            ConfigSnapshot(
+                captureLevel = configDetails.optString("captureLevel", "FULL"),
+                maxEventsPerSession = configDetails.optInt("maxEventsPerSession", template.config.maxEventsPerSession),
+            )
+        } else {
+            template.config
+        }
+
         val deviceParts = details?.optString("device").orEmpty().split(" ", limit = 2)
         val header = SessionHeader(
             sessionId = sessionId,
@@ -136,9 +154,9 @@ internal object SessionJournal {
             ),
             media3Version = template.media3Version,
             sdkVersion = null,
-            config = template.config,
+            config = config,
             fileErrors = 0,
-            attributes = emptyMap(),
+            attributes = attributes,
             health = Health.snapshot(),
             recovered = true,
         )

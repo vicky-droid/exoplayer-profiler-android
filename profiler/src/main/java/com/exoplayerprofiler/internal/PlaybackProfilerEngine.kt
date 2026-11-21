@@ -1068,6 +1068,15 @@ internal class PlaybackProfilerEngine {
       device = "${Build.MANUFACTURER} ${Build.MODEL}",
       sessionId = sessionId,
     ))
+    emit(SessionConfigV3(
+      tMs = 0L,
+      wallMs = sessionStartEpochMs,
+      thread = Thread.currentThread().name,
+      contentKind = ContentKind.UNKNOWN,
+      attributes = sessionAttributes,
+      captureLevel = config?.captureLevel?.name ?: "FULL",
+      maxEventsPerSession = config?.maxEventsPerSession ?: 10_000,
+    ))
     // The probe makes blocking MediaDrm and codec-list calls that can take seconds, so it runs on
     // its own thread. The writer stays free for events and session files. The result is offered
     // only if the same session is still running when the probe finishes.

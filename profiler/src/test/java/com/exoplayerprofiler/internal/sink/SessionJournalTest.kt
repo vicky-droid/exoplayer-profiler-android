@@ -150,6 +150,26 @@ class SessionJournalTest {
     }
 
     @Test
+    fun `a recovered session keeps its attributes and capture config`() {
+        val sink = FileSink(tmp.root, redacted = true)
+        sink.onEvent(started())
+        sink.onEvent(com.exoplayerprofiler.internal.model.SessionConfigV3(
+            tMs = 0L, wallMs = 0L, thread = "main", contentKind = ContentKind.UNKNOWN,
+            attributes = mapOf("screen" to "home", "app" to "demo"), captureLevel = "ERROR", maxEventsPerSession = 500,
+        ))
+        sink.onEvent(RenderedFirstFrameV3(tMs = 300L, wallMs = 0L, thread = "main", presentationTimeUs = 0L))
+        sink.close()
+
+        assertEquals(1, SessionJournal.recoverAll(tmp.root, template))
+
+        val session = JSONObject(sessionFiles().single().readText()).getJSONObject("session")
+        assertEquals("home", session.getJSONObject("attributes").getString("screen"))
+        assertEquals("demo", session.getJSONObject("attributes").getString("app"))
+        assertEquals("ERROR", session.getJSONObject("config").getString("captureLevel"))
+        assertEquals(500, session.getJSONObject("config").getInt("maxEventsPerSession"))
+    }
+
+    @Test
     fun `a journal whose session file already exists is removed and the existing file is kept`() {
         val base = leftoverJournal()
         val existing = File(tmp.root, "$base.json")

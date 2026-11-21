@@ -29,6 +29,7 @@ import com.exoplayerprofiler.internal.model.SchemaV3Event
 import com.exoplayerprofiler.internal.model.SeekStartedV3
 import com.exoplayerprofiler.internal.model.SessionAttachedV3
 import com.exoplayerprofiler.internal.model.SessionEndedV3
+import com.exoplayerprofiler.internal.model.SessionConfigV3
 import com.exoplayerprofiler.internal.model.SessionHeader
 import com.exoplayerprofiler.internal.model.SessionStartedV3
 import com.exoplayerprofiler.internal.model.StartupObservationV3
@@ -305,6 +306,16 @@ internal object EventJsonWriter {
             is StartupObservationV3 -> {
                 sb.append("{")
                 sb.append("\"observation\":").append(esc(event.observation))
+                sb.append("}")
+            }
+            is SessionConfigV3 -> {
+                sb.append("{\"attributes\":{")
+                event.attributes.entries.sortedBy { it.key }.forEachIndexed { idx, (k, v) ->
+                    if (idx > 0) sb.append(",")
+                    sb.append(esc(k)).append(":").append(esc(v))
+                }
+                sb.append("},\"captureLevel\":").append(esc(event.captureLevel))
+                sb.append(",\"maxEventsPerSession\":").append(event.maxEventsPerSession)
                 sb.append("}")
             }
             is SessionAttachedV3 -> {
