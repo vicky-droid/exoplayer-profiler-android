@@ -5,10 +5,13 @@ public enum class CaptureLevel {
     /** Every event. */
     FULL,
 
-    /** Stops recording after the first rendered frame (DRM and network errors still recorded). */
+    /**
+     * Stops recording after the first rendered frame. Session boundaries, playback errors, DRM and network
+     * events are still recorded.
+     */
     STARTUP_ONLY,
 
-    /** Only DRM and network events. */
+    /** Only session boundaries, playback errors, DRM and network events. */
     ERROR,
 }
 

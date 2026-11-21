@@ -58,9 +58,22 @@ internal class FileSink(
     private var journalFile: File? = null
     private var journalFailures = 0
     private var journalDisabled = false
+    // False from a SessionEnded event until the next SessionStarted. The sink starts open, so a sink that
+    // never sees SessionStarted still records its events.
+    private var sessionOpen = true
+    // Events that arrived outside a session, reported in the next session's header (outOfSessionEvents).
+    private var pendingOutOfSession = 0
 
     override fun onEvent(event: SchemaV3Event) {
         try {
+            val isStart = event.category == "SESSION" && event.event == "SessionStarted"
+            val isEnd = event.category == "SESSION" && event.event == "SessionEnded"
+            if (isStart) sessionOpen = true
+            if (!sessionOpen) {
+                // After a session's end marker and before the next start: not part of any session (C3).
+                pendingOutOfSession++
+                return
+            }
             val json = EventJsonWriter.eventToJson(event)
             // Apply token redaction to ensure no raw token leaks into file sinks
             val lineToWrite = if (redacted) Redactor.redactTokens(json) else json
@@ -74,6 +87,7 @@ internal class FileSink(
             }
             try { outputListener?.onEventJson(lineToWrite) } catch (_: Throwable) {}
             aggregates.track(event.category, event.event, json)
+            if (isEnd) sessionOpen = false
         } catch (e: Exception) {
             Log.w("PlaybackProfiler", "FileSink.onEvent failed: ${e.message}")
         }
@@ -89,10 +103,12 @@ internal class FileSink(
             val ordered = eventLines.sortedBy { it.first }.map { it.second }
             // droppedEvents = queue overflow reported by the engine + events over the cap here.
             // cappedEventsCounted: events past the per-session cap. They are not in the file but are in the aggregates.
+            // outOfSessionEvents: events that arrived between the previous session's end and this session's start.
             val counted = rawHdr.copy(
                 eventCount = ordered.size,
                 droppedEvents = rawHdr.droppedEvents + capDropped,
                 cappedEventsCounted = capDropped,
+                outOfSessionEvents = pendingOutOfSession,
             )
             val hdr = if (redacted && !counted.redacted) counted.copy(redacted = true) else counted
             val suffix = if (redacted) "" else ".raw"
@@ -107,6 +123,7 @@ internal class FileSink(
             // the session can be recovered on the next start.
             closeJournal(keepFile = !wroteSession)
             resetJournalState()
+            pendingOutOfSession = 0
             // One file per playback session: the next session must start with an empty buffer.
             eventLines.clear()
             storedEvents = 0
@@ -120,6 +137,8 @@ internal class FileSink(
         // A session still running keeps its journal, so it can be recovered after a restart.
         closeJournal(keepFile = true)
         resetJournalState()
+        pendingOutOfSession = 0
+        sessionOpen = true
         eventLines.clear()
         storedEvents = 0
         capDropped = 0

@@ -475,6 +475,9 @@ internal class PlaybackProfilerEngine {
 
     override fun onPlaybackStateChanged(eventTime: EventTime, playbackState: Int) { synchronized(this@PlaybackProfilerEngine) {
       val now = eventTime.realtimeMs
+      // Playback starting again on the attached player after its session ended is a replay: it gets a new session.
+      // Media3 Player.STATE_BUFFERING == 2, STATE_READY == 3.
+      if (playbackState == 2 || playbackState == 3) reopenSessionIfEnded()
       emit(PlaybackStateChangedV3(
         tMs = sessionTime(now),
         wallMs = System.currentTimeMillis(),
@@ -978,21 +981,23 @@ internal class PlaybackProfilerEngine {
   /** Offer a typed event to the writer thread. No JSON serialisation or I/O happens here. */
   private fun emit(event: SchemaV3Event, realtimeMs: Long = SystemClock.elapsedRealtime()) {
     if (!isActive()) return
-    // Honour captureLevel (E1). STARTUP_ONLY stops emitting after the first
-    // frame; ERROR keeps only error-related categories.
-    val level = config?.captureLevel ?: CaptureLevel.FULL
-    when (level) {
-      CaptureLevel.STARTUP_ONLY -> {
-        if (firstFrameTimeMs > 0L && event.category != "DRM" && event.category != "NETWORK") return
-      }
-      CaptureLevel.ERROR -> {
-        if (event.category != "DRM" && event.category != "NETWORK") return
-      }
-      CaptureLevel.FULL -> {}
-    }
+    // No open session (before the first attach, or after STATE_ENDED): the event has no session clock, so it
+    // is dropped rather than written into the next session's file (C3). beginSession sets the clock before it
+    // emits SessionStarted, so the session's own events are not affected.
+    if (sessionStartRealtimeMs == 0L) return
+    if (!isCaptured(event.category)) return
     ensureWriterThread()
     eventCounter++
     writerThread?.offer(event)
+  }
+
+  /** True when the configured capture level records an event in [category] now (E1, C5). */
+  private fun isCaptured(category: String): Boolean =
+    CaptureFilter.allows(config?.captureLevel ?: CaptureLevel.FULL, category, afterFirstFrame = firstFrameTimeMs > 0L)
+
+  /** A playback that starts on an attached player after its session ended begins a new session (replay, N5). */
+  private fun reopenSessionIfEnded() {
+    if (sessionStartRealtimeMs == 0L && attachedPlayer != null) beginSession()
   }
 
   /** Converts absolute realtime (ms since boot) to session-relative time (ms since session start). */
@@ -1046,6 +1051,13 @@ internal class PlaybackProfilerEngine {
     drmLicenseEndMs = 0L
     chunkCount = 0
     eventCounter = 0
+    // State from the previous session must not carry over (C2): a format seen last session is not a switch,
+    // a chunk load that started last session has no record here, and chunk ids start again at 0.
+    lastFormatIdByTrackType.clear()
+    lastDroppedFramesEventTimeMs = 0L
+    chunkRecords.clear()
+    chunkCounter = 0
+    lastMediaEndMsByTrackType.clear()
     emit(SessionStartedV3(
       tMs = 0L,
       wallMs = sessionStartEpochMs,
@@ -1073,7 +1085,12 @@ internal class PlaybackProfilerEngine {
         }
         if (capsEvent != null) {
           synchronized(this@PlaybackProfilerEngine) {
-            if (sessionId == probeSessionId) writerThread?.offer(capsEvent)
+            // Same rules as every other event (N4): the same session must still be open, the capture level
+            // must record it, and it is counted like the rest.
+            if (sessionId == probeSessionId && sessionStartRealtimeMs != 0L && isCaptured(capsEvent.category)) {
+              eventCounter++
+              writerThread?.offer(capsEvent)
+            }
           }
         }
       },
@@ -1085,8 +1102,14 @@ internal class PlaybackProfilerEngine {
   @Synchronized
   fun attach(player: ExoPlayer) {
     if (!isActive()) return
-    if (attachedPlayer === player) return
+    if (attachedPlayer === player) {
+      // The same player again: a session starts only if the last one has ended (N5).
+      reopenSessionIfEnded()
+      return
+    }
     if (attachedPlayer != null) {
+      // The previous player must stop feeding this engine, or its events would land in the new session.
+      attachedPlayer?.removeAnalyticsListener(listener)
       endSession()
     }
     attachedPlayer = player
