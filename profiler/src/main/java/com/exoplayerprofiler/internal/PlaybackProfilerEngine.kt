@@ -491,7 +491,7 @@ internal class PlaybackProfilerEngine {
         try {
           endSession()
         } catch (e: Exception) {
-          Log.w("PlaybackProfiler", "Session finalisation on end failed: ${e.javaClass.simpleName}")
+          Health.record("engine.endOnPlaybackEnded", e)
         }
       }
       }
@@ -812,7 +812,7 @@ internal class PlaybackProfilerEngine {
       try {
         endSession()
       } catch (e: Exception) {
-        Log.w("PlaybackProfiler", "Session finalisation on release failed: ${e.javaClass.simpleName}")
+        Health.record("engine.endOnRelease", e)
       }
       attachedPlayer = null
       }
@@ -960,7 +960,9 @@ internal class PlaybackProfilerEngine {
       wt.post {
         try {
           if (SessionJournal.recoverAll(profilerDir, template, sinkAdapter) > 0) retention?.enforce()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+          Health.record("engine.recovery", e, Health.Kind.RECOVERY)
+        }
       }
       rawChunkUris = debuggable && config?.captureRawLocal == true
       writerThread = wt
@@ -969,7 +971,7 @@ internal class PlaybackProfilerEngine {
       // Log once and stop retrying on every event; the profiler stays initialised.
       writerInitFailed = true
       fileErrorCount++
-      Log.w("PlaybackProfiler", "Failed to start writer thread / sinks: ${e.javaClass.simpleName}")
+      Health.record("engine.writerInit", e)
       null
     }
   }
@@ -1080,7 +1082,8 @@ internal class PlaybackProfilerEngine {
             wallMs = System.currentTimeMillis(),
             thread = Thread.currentThread().name,
           )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+          Health.record("engine.probe", e)
           null
         }
         if (capsEvent != null) {
@@ -1157,7 +1160,7 @@ internal class PlaybackProfilerEngine {
     retentionManager?.markClosed(sessionId)
     // Retention runs after the session file is written: the writer thread runs posted work in order.
     val retention = retentionManager
-    writerThread?.post { try { retention?.enforce() } catch (_: Exception) {} }
+    writerThread?.post { try { retention?.enforce() } catch (e: Exception) { Health.record("engine.retention", e) } }
     sessionStartRealtimeMs = 0L
     sessionStartEpochMs = 0L
     playClickTimeMs = 0L
@@ -1272,7 +1275,7 @@ internal class PlaybackProfilerEngine {
         endSession()
       } catch (e: Exception) {
         fileErrorCount++
-        Log.w("PlaybackProfiler", "Session finalisation on reset failed: ${e.javaClass.simpleName}")
+        Health.record("engine.endOnReset", e)
       }
     }
     writerInitFailed = false
@@ -1328,6 +1331,7 @@ internal class PlaybackProfilerEngine {
       val debuggable = ctx?.applicationInfo?.let { it.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 } == true
       val isRedacted = !(config?.captureRawLocal == true && debuggable)
       return SessionHeader(
+        health = Health.snapshot(),
         sessionId = sessionId,
         packageName = context?.packageName ?: "",
         startedAtEpochMs = sessionStartEpochMs,

@@ -1,5 +1,7 @@
 package com.exoplayerprofiler.internal.writer
 
+import com.exoplayerprofiler.internal.Health
+
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Message
@@ -90,7 +92,7 @@ internal class WriterThread private constructor(
                 // Drain what is still queued so no event is lost on teardown.
                 drainAndDispatch()
                 for (sink in sinks) {
-                    try { sink.close() } catch (_: Exception) {}
+                    try { sink.close() } catch (e: Exception) { Health.record("writer.close", e) }
                 }
                 quitSafely()
             }
@@ -106,10 +108,10 @@ internal class WriterThread private constructor(
         for (item in buffer) {
             when (item) {
                 is SchemaV3Event -> for (sink in sinks) {
-                    try { sink.onEvent(item) } catch (_: Exception) {}
+                    try { sink.onEvent(item) } catch (e: Exception) { Health.record("writer.onEvent", e, Health.Kind.SINK) }
                 }
                 is SessionEndMarker -> for (sink in sinks) {
-                    try { sink.onSessionEnded(item.sessionId, item.eventCount, item.header) } catch (_: Exception) {}
+                    try { sink.onSessionEnded(item.sessionId, item.eventCount, item.header) } catch (e: Exception) { Health.record("writer.onSessionEnded", e, Health.Kind.SINK) }
                 }
             }
         }

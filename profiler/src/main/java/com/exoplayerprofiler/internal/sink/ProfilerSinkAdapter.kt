@@ -1,5 +1,7 @@
 package com.exoplayerprofiler.internal.sink
 
+import com.exoplayerprofiler.internal.Health
+
 import androidx.media3.common.util.UnstableApi
 import com.exoplayerprofiler.ProfilerSink
 import java.util.concurrent.CopyOnWriteArrayList
@@ -18,10 +20,10 @@ internal class ProfilerSinkAdapter : FileSink.OutputListener {
     fun remove(sink: ProfilerSink) { sinks.remove(sink) }
 
     override fun onEventJson(eventJson: String) {
-        for (s in sinks) try { s.onEvent(eventJson) } catch (_: Throwable) {}
+        for (s in sinks) try { s.onEvent(eventJson) } catch (e: Exception) { Health.record("sink.onEvent", e, Health.Kind.SINK) }
     }
 
     override fun onSessionJson(sessionId: String, sessionJson: String) {
-        for (s in sinks) try { s.onSessionEnded(sessionId, sessionJson) } catch (_: Throwable) {}
+        for (s in sinks) try { s.onSessionEnded(sessionId, sessionJson) } catch (e: Exception) { Health.record("sink.onSessionEnded", e, Health.Kind.SINK) }
     }
 }

@@ -1,5 +1,7 @@
 package com.exoplayerprofiler.internal.sink
 
+import com.exoplayerprofiler.internal.Health
+
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import com.exoplayerprofiler.internal.json.EventJsonWriter
@@ -85,11 +87,11 @@ internal class FileSink(
                 // Over the per-session cap: not written to the file, counted in the header.
                 capDropped++
             }
-            try { outputListener?.onEventJson(lineToWrite) } catch (_: Throwable) {}
+            try { outputListener?.onEventJson(lineToWrite) } catch (e: Exception) { Health.record("FileSink.listener.onEvent", e, Health.Kind.SINK) }
             aggregates.track(event.category, event.event, json)
             if (isEnd) sessionOpen = false
         } catch (e: Exception) {
-            Log.w("PlaybackProfiler", "FileSink.onEvent failed: ${e.message}")
+            Health.record("FileSink.onEvent", e)
         }
     }
 
@@ -114,10 +116,10 @@ internal class FileSink(
             val suffix = if (redacted) "" else ".raw"
             val json = SessionFiles.write(filesDir, hdr, ordered, aggregates.snapshot(), suffix)
             wroteSession = true
-            try { outputListener?.onSessionJson(hdr.sessionId, json) } catch (_: Throwable) {}
+            try { outputListener?.onSessionJson(hdr.sessionId, json) } catch (e: Exception) { Health.record("FileSink.listener.onSession", e, Health.Kind.SINK) }
             Log.d("PlaybackProfiler", "FileSink: wrote session ${hdr.sessionId.take(8)} (${ordered.size} events)")
         } catch (e: Exception) {
-            Log.w("PlaybackProfiler", "FileSink.onSessionEnded failed: ${e.message}")
+            Health.record("FileSink.onSessionEnded", e)
         } finally {
             // The journal is only needed until the session is written. If writing failed, keep it so
             // the session can be recovered on the next start.
@@ -160,6 +162,7 @@ internal class FileSink(
             writer.flush()
         } catch (e: Exception) {
             journalFailures++
+            Health.record("FileSink.journal", e)
             // Logged once per session, then journaling stops after a few failures: a full disk must not
             // cost a log line and a failed write per event.
             if (journalFailures == 1) Log.w("PlaybackProfiler", "Journal write failed: ${e.javaClass.simpleName}")
@@ -279,7 +282,8 @@ internal object SessionFiles {
             val digest = MessageDigest.getInstance("SHA-256")
             val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
             hash.joinToString("") { "%02x".format(it) }.substring(0, 12)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Health.record("FileSink.sha256", e)
             ""
         }
     }

@@ -1,5 +1,7 @@
 package com.exoplayerprofiler.internal.sink
 
+import com.exoplayerprofiler.internal.Health
+
 import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import com.exoplayerprofiler.internal.model.ConfigSnapshot
@@ -58,7 +60,7 @@ internal object SessionJournal {
             val outcome = try {
                 recover(journal, profilerDir, template, listener)
             } catch (e: Exception) {
-                Log.w("PlaybackProfiler", "Journal recovery failed: ${e.javaClass.simpleName}")
+                Health.record("journal.recovery", e, Health.Kind.RECOVERY)
                 Outcome.KEEP
             }
             if (outcome == Outcome.RECOVERED) recovered++
@@ -137,11 +139,12 @@ internal object SessionJournal {
             config = template.config,
             fileErrors = 0,
             attributes = emptyMap(),
+            health = Health.snapshot(),
             recovered = true,
         )
         // A write failure throws out of here and the journal is kept for the next start.
         val json = SessionFiles.write(profilerDir, header, lines.map { it.first }, tracker.snapshot(), suffix)
-        try { listener?.onSessionJson(sessionId, json) } catch (_: Throwable) {}
+        try { listener?.onSessionJson(sessionId, json) } catch (e: Exception) { Health.record("journal.listener", e, Health.Kind.SINK) }
         return Outcome.RECOVERED
     }
 }

@@ -1,5 +1,7 @@
 package com.exoplayerprofiler
 
+import com.exoplayerprofiler.internal.Health
+
 import android.annotation.SuppressLint
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
@@ -36,7 +38,7 @@ public object ExoPlayerProfiler {
      * host app's playback path.
      */
     private inline fun guarded(block: () -> Unit) {
-        try { block() } catch (_: Throwable) {}
+        try { block() } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Sets the configuration. Call once, before [attach]. Safe to call again to change config. */
@@ -75,32 +77,32 @@ public object ExoPlayerProfiler {
      * across sessions until removed.
      */
     public fun setSessionAttribute(key: String, value: String?) {
-        try { engine.setSessionAttribute(key, value) } catch (_: Throwable) {}
+        try { engine.setSessionAttribute(key, value) } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Records the time the user pressed play. It is the start of the VST measurement. */
     public fun markPlayClick() {
-        try { engine.reportPlayClick() } catch (_: Throwable) {}
+        try { engine.reportPlayClick() } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Marks the start of authentication, for the VST breakdown. */
     public fun markAuthStart() {
-        try { engine.reportAuthStart() } catch (_: Throwable) {}
+        try { engine.reportAuthStart() } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Marks the end of authentication, for the VST breakdown. [durationMs] is the time it took. */
     public fun markAuthEnd(durationMs: Long) {
-        try { engine.reportAuthEnd(durationMs) } catch (_: Throwable) {}
+        try { engine.reportAuthEnd(durationMs) } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Registers a sink. It is notified on the writer thread, also when added after playback began. */
     public fun addSink(sink: ProfilerSink) {
-        try { engine.addSink(sink) } catch (_: Throwable) {}
+        try { engine.addSink(sink) } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /** Stops delivery to a sink added with [addSink]. */
     public fun removeSink(sink: ProfilerSink) {
-        try { engine.removeSink(sink) } catch (_: Throwable) {}
+        try { engine.removeSink(sink) } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /**
@@ -110,7 +112,7 @@ public object ExoPlayerProfiler {
      * Does nothing when the profiler is disabled.
      */
     public fun beginSession() {
-        try { engine.startNewSession() } catch (_: Throwable) {}
+        try { engine.startNewSession() } catch (e: Exception) { Health.record("facade", e) }
     }
 
     /**
@@ -121,6 +123,6 @@ public object ExoPlayerProfiler {
     public fun markPlaybackRequest(contentId: String?, details: Map<String, Any?>? = null) {
         try {
             engine.reportPlaybackRequest(contentId, details?.filterValues { it != null }?.mapValues { it.value!! })
-        } catch (_: Throwable) {}
+        } catch (e: Exception) { Health.record("facade", e) }
     }
 }
